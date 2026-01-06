@@ -2,55 +2,70 @@ import streamlit as st
 import pandas as pd
 import datetime
 import plotly.express as px
+from PIL import Image
 
-st.set_page_config(page_title="Mój Dziennik Wagi", page_icon="⚖️")
+st.set_page_config(page_title="Mój Dziennik Fitness", layout="wide")
 
-st.title("⚖️ Dziennik Odchudzania")
+# --- KONFIGURACJA UŻYTKOWNIKA ---
+st.sidebar.header("Twoje Dane")
+imie = st.sidebar.text_input("Imię", "Paweł")
+wiek = st.sidebar.number_input("Twój wiek", min_value=1, max_value=120, value=30)
+wzrost = st.sidebar.number_input("Twój wzrost (cm)", min_value=100, max_value=250, value=180)
 
-# Prosta baza danych w pliku CSV
-DB_FILE = "waga_data.csv"
+def oblicz_bmi(waga, wzrost_cm):
+    return round(waga / ((wzrost_cm/100)**2), 1)
+
+def wiek_metaboliczny(wiek, bmi):
+    # Uproszczony wzór: BMI powyżej 25 dodaje lata, poniżej odejmuje
+    roznica = (bmi - 22) * 0.5
+    return int(wiek + roznica)
+
+# --- BAZA DANYCH ---
+DB_FILE = "fitness_data.csv"
 
 def load_data():
     try:
         return pd.read_csv(DB_FILE)
-    except FileNotFoundError:
-        return pd.DataFrame(columns=["Data", "Waga", "Tkanka_Tluszczowa", "Miesnie", "BMI"])
+    except:
+        return pd.DataFrame(columns=["Data", "Waga", "BMI", "Wiek Met.", "Notatka"])
 
-data = load_data()
+# --- MENU GŁÓWNE ---
+st.title(f"💪 Dziennik Fitness: {imie}")
 
-# Formularz dodawania pomiaru
-with st.expander("➕ Dodaj nowy pomiar", expanded=True):
-    with st.form("weight_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            date = st.date_input("Data", datetime.date.today())
-            weight = st.number_input("Waga (kg)", min_value=30.0, max_value=200.0, step=0.1)
-        with col2:
-            fat = st.number_input("Tkanka tłuszczowa (%)", min_value=1.0, max_value=60.0, step=0.1)
-            muscle = st.number_input("Masa mięśniowa (kg)", min_value=10.0, max_value=150.0, step=0.1)
-        
-        submit = st.form_submit_button("Zapisz pomiar")
-        
-        if submit:
-            new_entry = pd.DataFrame([[date, weight, fat, muscle, round(weight / (1.8**2), 2)]], 
-                                     columns=data.columns)
-            data = pd.concat([data, new_entry], ignore_index=True)
-            data.to_csv(DB_FILE, index=False)
-            st.success("Zapisano!")
+col1, col2 = st.columns(2)
 
-# Wyświetlanie statystyk
-if not data.empty:
-    st.subheader("Twój postęp")
+with col1:
+    st.subheader("Dodaj nowy pomiar")
+    data = st.date_input("Data", datetime.date.today())
+    waga = st.number_input("Waga (kg)", min_value=30.0, max_value=200.0, value=85.0, step=0.1)
+    notatka = st.text_input("Notatka (np. po treningu)")
+    foto = st.file_uploader("Dodaj zdjęcie sylwetki", type=['jpg', 'png', 'jpeg'])
     
-    # Wykres
-    fig = px.line(data, x="Data", y="Waga", title="Zmiana wagi w czasie", markers=True)
+    if st.button("Zapisz pomiar"):
+        df = load_data()
+        bmi_akt = oblicz_bmi(waga, wzrost)
+        wiek_met = wiek_metaboliczny(wiek, bmi_akt)
+        
+        nowy_wpis = pd.DataFrame([[data, waga, bmi_akt, wiek_met, notatka]], 
+                                columns=["Data", "Waga", "BMI", "Wiek Met.", "Notatka"])
+        df = pd.concat([df, nowy_wpis], ignore_index=True)
+        df.to_csv(DB_FILE, index=False)
+        st.success("Dane zapisane!")
+
+with col2:
+    df = load_data()
+    if not df.empty:
+        ostatnia_waga = df.iloc[-1]['Waga']
+        st.metric("Aktualna Waga", f"{ostatnia_waga} kg")
+        st.metric("Twoje BMI", df.iloc[-1]['BMI'])
+        st.metric("Wiek Metaboliczny", f"{df.iloc[-1]['Wiek Met.']} lat")
+
+st.divider()
+if not df.empty:
+    st.subheader("Twoje postępy")
+    fig = px.line(df, x="Data", y="Waga", title="Zmiana wagi w czasie", markers=True)
     st.plotly_chart(fig, use_container_width=True)
     
-    # Tabela z historią
     st.subheader("Historia pomiarów")
-    st.dataframe(data.sort_values(by="Data", ascending=False), use_container_width=True)
-    
-    # Przycisk eksportu (np. do Excela)
-    st.download_button("Pobierz dane jako CSV", data.to_csv(index=False), "moja_waga.csv", "text/csv")
-else:
-    st.info("Dodaj pierwszy pomiar, aby zobaczyć wykres!")
+    st.write(df)
+
